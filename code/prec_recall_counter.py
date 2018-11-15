@@ -7,7 +7,7 @@ class PrecRecallCounter(object):
 		elif type(class_nums) == list:
 			self.class_nums = np.array(class_nums)
 		else:
-			print 'input must be int or list'
+			print('input must be int or list')
 			exit()
 		self.log_dir = log_dir
 		self.name = name
@@ -48,8 +48,8 @@ class PrecRecallCounter(object):
 		self.f1_class = 2*self.accuracy_class*self.recall_class/(self.accuracy_class+self.recall_class+1e-10)
 		self.macro_f1 = np.sum(self.f1_class, axis = 1)/self.class_nums
 	def output(self):
-		print self.name
-		print 'macro_acc:', np.round(self.macro_acc,4), 'macro_recall:', np.round(self.macro_recall,4), 'micro_acc:', np.round(self.accuracy_total,4)
+		print(self.name)
+		print('macro_acc:', np.round(self.macro_acc,4), 'macro_recall:', np.round(self.macro_recall,4), 'micro_acc:', np.round(self.accuracy_total,4))
 		
 		f = open(self.log_dir + str(self.number), 'w')
 		tn = datetime.datetime.now()

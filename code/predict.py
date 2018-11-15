@@ -43,31 +43,31 @@ def main(_):
 	mixattr = [2,3,7]
 	single_attr = [4,9]
 	
-	word2id,word_embeddings,attr_table,x_train,y_train,y_attr_train,x_test,y_test,y_attr_test,x_val,y_val,y_attr_val,namehash,length_train,length_test,length_val = load_data_and_labels_fewshot()
+	word2id,word_embeddings,attr_table,x,namehash,length_x = load_data4predict_and_init()
 	id2word = {}
 	for i in word2id:
 		id2word[word2id[i]] = i
-	batches = batch_iter(list(zip(x_train, y_train, y_attr_train)), global_config.batch_size, global_config.num_epochs)
-	lstm_config = model.lstm_Config()
-	lstm_config.num_steps = len(x_train[0])
-	lstm_config.hidden_size = len(word_embeddings[0])
-	lstm_config.vocab_size = len(word_embeddings)
-	lstm_config.num_classes = len(y_train[0])
-	lstm_config.num_epochs = 20
-	lstm_config.batch_size = bs
-	lstm_config.num_epochs = 20
+	# batches = batch_iter(list(zip(x_train, y_train, y_attr_train)), global_config.batch_size, global_config.num_epochs)
+	# lstm_config = model.lstm_Config()
+	# lstm_config.num_steps = len(x[0])
+	# lstm_config.hidden_size = len(word_embeddings[0])
+	# lstm_config.vocab_size = len(word_embeddings)
+	# lstm_config.num_classes = len(y_train[0])
+	# lstm_config.num_epochs = 20
+	# lstm_config.batch_size = bs
+	# lstm_config.num_epochs = 20
 
 	lstm_eval_config = model.lstm_Config()
 	lstm_eval_config.keep_prob = 1.0
-	lstm_eval_config.num_steps = len(x_train[0])
+	lstm_eval_config.num_steps = len(x[0])
 	lstm_eval_config.hidden_size = len(word_embeddings[0])
 	lstm_eval_config.vocab_size = len(word_embeddings)
 	lstm_eval_config.num_classes = len(y_train[0])
 	lstm_eval_config.batch_size = bs
 	lstm_eval_config.num_epochs = 20
 
-	zero_x = [0 for i in range(lstm_config.num_steps)]
-	zero_y = [0 for i in range(lstm_config.num_classes)]
+	# zero_x = [0 for i in range(lstm_config.num_steps)]
+	# zero_y = [0 for i in range(lstm_config.num_classes)]
 
 	lstm_count_tab = np.array([[0.0 for i in range(lstm_config.num_classes)]for j in range(lstm_config.num_classes)])
 	total_tab = np.array([0.0 for i in range(lstm_config.num_classes)])	
@@ -82,25 +82,20 @@ def main(_):
 				print('lstm step1')
 				lstm_model = model.LSTM_MODEL(word_embeddings=word_embeddings,attr_table=attr_table,config = lstm_config)
 				print('lstm step2')
-				lstm_optimizer = tf.train.AdamOptimizer(lstm_config.lr)
+				# lstm_optimizer = tf.train.AdamOptimizer(lstm_config.lr)
 				print('lstm step3')
-				lstm_global_step = tf.Variable(0, name = "lstm_global_step", trainable = False)
-				lstm_train_op = lstm_optimizer.minimize(lstm_model.total_loss,global_step = lstm_global_step)
+				# lstm_global_step = tf.Variable(0, name = "lstm_global_step", trainable = False)
+				# lstm_train_op = lstm_optimizer.minimize(lstm_model.total_loss,global_step = lstm_global_step)
 				print('lstm step4')
 			saver = tf.train.Saver()
-			init_op = tf.initialize_all_variables()
+			init_op = tf.global_variables_initializer()
 			sess.run(init_op)
-			best_macro_f1 = 0.0
-			if restore:
-				f_f1 = open(val_lstm_log_dir+'best_macro_f1','r')
-				f1s = f_f1.readlines()
-				best_macro_f1 = float(f1s[-1].strip().split(' ')[-1].strip('[').strip(']'))
-				f_f1.close()
-				ckpt = tf.train.get_checkpoint_state(checkpoint_dir)  
-				if ckpt and ckpt.model_checkpoint_path:  
-					saver.restore(sess, ckpt.model_checkpoint_path)  
-				else:  
-					pass
+
+			ckpt = tf.train.get_checkpoint_state(checkpoint_dir)
+			if ckpt and ckpt.model_checkpoint_path:
+				saver.restore(sess, ckpt.model_checkpoint_path)
+			else:
+				pass
 
 			def lstm_train_step(x_batch, y_batch, y_attr_batch, length_batch):
 				"""
@@ -138,7 +133,7 @@ def main(_):
 
 				return lstm_p,attr_p,t_loss,l_loss,a_loss,attn_weights
 
-			batches = batch_iter(list(zip(x_train,y_train,y_attr_train,length_train)),lstm_config.batch_size, lstm_config.num_epochs)
+			batches = list(zip(x,length_x))
 
 			for batch in batches:
 				if len(batch)<bs:

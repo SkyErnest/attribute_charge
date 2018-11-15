@@ -18,6 +18,8 @@ class LSTM_MODEL(object):
 		self.vocab_size = vocab_size = config.vocab_size
 		self.num_classes = num_classes = config.num_classes
 		self.ave_ratio = ave_ratio = config.ave_ratio
+		self.tfidf_vec_len = tfidf_vec_len = config.tfidf_vec_len
+
 		hits_k = config.hits_k
 
 		self.Y = Y = global_config.value2num['Y']
@@ -26,6 +28,7 @@ class LSTM_MODEL(object):
 		self.input_x = tf.placeholder(tf.int32, [batch_size, num_steps])
 		self.input_length = tf.placeholder(tf.int32, [batch_size])
 		self.input_y = tf.placeholder(tf.float32, [batch_size, num_classes])
+		self.tfidf_vec = tf.placeholder(tf.float32, [batch_size, tfidf_vec_len])
 		self.unmapped_input_attr = tf.placeholder(tf.int32, [batch_size, num_attrs])
 		self.keep_prob = tf.placeholder(tf.float32)
 
@@ -63,13 +66,14 @@ class LSTM_MODEL(object):
 			self.output = tf.reshape(output_pooling, [-1, size])
 			
 		with tf.name_scope("lstm_output"):
-			softmax_w = tf.get_variable("softmax_w", [size+size, num_classes])
+			softmax_w = tf.get_variable("softmax_w", [size+self.tfidf_vec_len, num_classes])
 			softmax_b = tf.get_variable("softmax_b", [num_classes])
 			
-			ave_attention_outputs = tf.reduce_mean(tf.concat([tf.expand_dims(temp,1) for temp in self.attention_outputs],1),axis=1)
-			ave_attention_outputs = ave_attention_outputs*self.ave_ratio
+			# ave_attention_outputs = tf.reduce_mean(tf.concat([tf.expand_dims(temp,1) for temp in self.attention_outputs],1),axis=1)
+			# ave_attention_outputs = ave_attention_outputs*self.ave_ratio
 			temp = [self.output]
-			temp.append(tf.reshape(ave_attention_outputs, [batch_size, size]))
+			# temp.append(tf.reshape(ave_attention_outputs, [batch_size, size]))
+			temp.append(self.tfidf_vec)
 			self.concat_output = tf.concat(temp,1)
 			self.scores = tf.nn.xw_plus_b(self.concat_output, softmax_w, softmax_b, name="scores")
 			self.predictions = tf.argmax(self.scores, 1, name="predictions")
@@ -78,7 +82,8 @@ class LSTM_MODEL(object):
 			losses = tf.nn.softmax_cross_entropy_with_logits(logits = self.scores,labels = self.input_y)
 			self.lstm_loss = tf.reduce_mean(losses)
 			self.total_attr_loss = tf.reduce_mean(self.attr_loss)
-			self.total_loss = self.lstm_loss + config.attr_loss_ratio*self.total_attr_loss
+			# self.total_loss = self.lstm_loss + config.attr_loss_ratio*self.total_attr_loss
+			self.total_loss = self.lstm_loss
 
 		self.ans = tf.argmax(self.input_y, 1)
 

@@ -1,12 +1,14 @@
 import numpy as np
 import tensorflow as tf 
 import global_config
-import model
+import model_modi as model
 import random
 from prec_recall_counter import PrecRecallCounter
 from sys import argv
-from init import *
+from init_modi import *
 import os
+from sklearn.feature_extraction.text import TfidfVectorizer
+
 def ismixed(a, b, c):
 	#mixed couple, pred, answer
 	
@@ -43,11 +45,11 @@ def main(_):
 	mixattr = [2,3,7]
 	single_attr = [4,9]
 	
-	word2id,word_embeddings,attr_table,x_train,y_train,y_attr_train,x_test,y_test,y_attr_test,x_val,y_val,y_attr_val,namehash,length_train,length_test,length_val = load_data_and_labels_fewshot()
+	word2id,word_embeddings,attr_table,x_train,y_train,y_attr_train,tfidf_vec_train,x_test,y_test,y_attr_test,tfidf_vec_test,x_val,y_val,y_attr_val,tfidf_vec_val,namehash,length_train,length_test,length_val = load_data_and_labels_fewshot()
 	id2word = {}
 	for i in word2id:
 		id2word[word2id[i]] = i
-	batches = batch_iter(list(zip(x_train, y_train, y_attr_train)), global_config.batch_size, global_config.num_epochs)
+	batches = batch_iter(list(zip(x_train, y_train, y_attr_train, tfidf_vec_train)), global_config.batch_size, global_config.num_epochs)
 	lstm_config = model.lstm_Config()
 	lstm_config.num_steps = len(x_train[0])
 	lstm_config.hidden_size = len(word_embeddings[0])
@@ -56,6 +58,7 @@ def main(_):
 	lstm_config.num_epochs = 20
 	lstm_config.batch_size = bs
 	lstm_config.num_epochs = 20
+	lstm_config.tfidf_vec_len = tfidf_vec_len
 
 	lstm_eval_config = model.lstm_Config()
 	lstm_eval_config.keep_prob = 1.0
@@ -102,7 +105,7 @@ def main(_):
 				else:  
 					pass
 
-			def lstm_train_step(x_batch, y_batch, y_attr_batch, length_batch):
+			def lstm_train_step(x_batch, y_batch, y_attr_batch, tfidf_vec_batch, length_batch):
 				"""
 				A single training step
 				"""
@@ -111,6 +114,7 @@ def main(_):
 					lstm_model.input_length: length_batch,
 					lstm_model.input_y: y_batch,
 					lstm_model.unmapped_input_attr: y_attr_batch,
+					lstm_model.tfidf_vec: tfidf_vec_batch,
 					lstm_model.keep_prob: 0.5,
 				}
 				_, step, total_loss, lstm_loss, attr_loss = sess.run(
@@ -121,7 +125,7 @@ def main(_):
 	 				print(("{}: step {}, total loss {:g}, lstm_loss {:g}, attr_loss {:g}".format(time_str, step, total_loss,
 	 					lstm_loss, attr_loss)))
 				return step
-			def lstm_dev_step(x_batch, y_batch, y_attr_batch, length_batch, writer=None):
+			def lstm_dev_step(x_batch, y_batch, y_attr_batch, tfidf_vec_batch, length_batch, writer=None):
 				"""
 				Evaluates model on a dev set
 				"""
@@ -130,6 +134,7 @@ def main(_):
 					lstm_model.input_length: length_batch,
 					lstm_model.input_y: y_batch,
 					lstm_model.unmapped_input_attr: y_attr_batch,
+					lstm_model.tfidf_vec: tfidf_vec_batch,
 					lstm_model.keep_prob: 1.0,
 				}
 				runlist = [lstm_model.predictions,lstm_model.attr_preds,lstm_model.total_loss,lstm_model.lstm_loss,lstm_model.total_attr_loss,lstm_model.attn_weights]
@@ -138,13 +143,13 @@ def main(_):
 
 				return lstm_p,attr_p,t_loss,l_loss,a_loss,attn_weights
 
-			batches = batch_iter(list(zip(x_train,y_train,y_attr_train,length_train)),lstm_config.batch_size, lstm_config.num_epochs)
+			batches = batch_iter(list(zip(x_train,y_train,y_attr_train,tfidf_vec_train,length_train)),lstm_config.batch_size, lstm_config.num_epochs)
 
 			for batch in batches:
 				if len(batch)<bs:
 					batch=np.concatenate([batch,batch[:bs-len(batch)]])
-				x_batch, y_batch, y_attr_batch, length_batch = list(zip(*batch))
-				step = lstm_train_step(x_batch, y_batch, y_attr_batch, length_batch)
+				x_batch, y_batch, y_attr_batch, tfidf_batch, length_batch = list(zip(*batch))
+				step = lstm_train_step(x_batch, y_batch, y_attr_batch, tfidf_batch, length_batch)
 				if ((step % perstep) == 0) or (skiptrain):
 
 					print('Evaluation')
@@ -170,9 +175,10 @@ def main(_):
 						y_batch_t = y_test[begin:end]
 						x_batch_t = x_test[begin:end]
 						y_attr_batch_t = y_attr_test[begin:end]
+						tfidf_batch_t = tfidf_vec_test[begin:end]
 						length_batch = length_test[begin:end]
 
-						lstm_p,attr_p,t_loss,l_loss,a_loss,attn_weights = lstm_dev_step(x_batch_t,y_batch_t,y_attr_batch_t,length_batch)
+						lstm_p,attr_p,t_loss,l_loss,a_loss,attn_weights = lstm_dev_step(x_batch_t,y_batch_t,y_attr_batch_t,tfidf_batch_t,length_batch)
 						total_losses+=t_loss
 						lstm_losses+=l_loss
 						attr_losses+=a_loss
@@ -218,14 +224,16 @@ def main(_):
 					y_batch_t = y_test[begin:]
 					x_batch_t = x_test[begin:]
 					y_attr_batch_t = y_attr_test[begin:]
+					tfidf_batch_t = tfidf_vec_test[begin:]
 					length_batch = length_test[begin:]
 					cl = len(y_batch_t)
 					for itemp in range(lstm_eval_config.batch_size-cl):
 						y_batch_t = np.append(y_batch_t,[y_batch_t[0]],axis=0)
 						x_batch_t = np.append(x_batch_t,[x_batch_t[0]],axis=0)
 						y_attr_batch_t = np.append(y_attr_batch_t,[y_attr_batch_t[0]],axis=0)
+						tfidf_batch_t = np.append(tfidf_batch_t,[tfidf_batch_t[0]],axis=0)
 						length_batch = np.append(length_batch,[length_batch[0]],axis=0)
-					lstm_p,attr_p,t_loss,l_loss,a_loss,attn_weights = lstm_dev_step(x_batch_t,y_batch_t,y_attr_batch_t,length_batch)
+					lstm_p,attr_p,t_loss,l_loss,a_loss,attn_weights = lstm_dev_step(x_batch_t,y_batch_t,y_attr_batch_t,tfidf_batch_t,length_batch)
 					total_losses+=t_loss
 					lstm_losses+=l_loss
 					attr_losses+=a_loss
@@ -268,9 +276,10 @@ def main(_):
 							y_batch_t = y_val[begin:end]
 							x_batch_t = x_val[begin:end]
 							y_attr_batch_t = y_attr_val[begin:end]
+							tfidf_batch_t = tfidf_vec_val[begin:end]
 							length_batch = length_val[begin:end]
 							
-							lstm_p,attr_p,t_loss,l_loss,a_loss,attn_weights = lstm_dev_step(x_batch_t,y_batch_t,y_attr_batch_t,length_batch)
+							lstm_p,attr_p,t_loss,l_loss,a_loss,attn_weights = lstm_dev_step(x_batch_t,y_batch_t,y_attr_batch_t,tfidf_batch_t,length_batch)
 							total_losses+=t_loss
 							lstm_losses+=l_loss
 							attr_losses+=a_loss
@@ -299,14 +308,16 @@ def main(_):
 						y_batch_t = y_val[begin:]
 						x_batch_t = x_val[begin:]
 						y_attr_batch_t = y_attr_val[begin:]
+						tfidf_batch_t = tfidf_vec_val[begin:]
 						length_batch = length_val[begin:]
 						cl = len(y_batch_t)
 						for itemp in range(lstm_eval_config.batch_size-cl):
 							y_batch_t = np.append(y_batch_t,[y_batch_t[0]],axis=0)
 							x_batch_t = np.append(x_batch_t,[x_batch_t[0]],axis=0)
 							y_attr_batch_t = np.append(y_attr_batch_t,[y_attr_batch_t[0]],axis=0)
+							tfidf_batch_t = np.append(tfidf_batch_t,[tfidf_batch_t[0]],axis=0)
 							length_batch = np.append(length_batch,[length_batch[0]],axis=0)
-						lstm_p,attr_p,t_loss,l_loss,a_loss,attn_weights = lstm_dev_step(x_batch_t,y_batch_t,y_attr_batch_t,length_batch)
+						lstm_p,attr_p,t_loss,l_loss,a_loss,attn_weights = lstm_dev_step(x_batch_t,y_batch_t,y_attr_batch_t,tfidf_batch_t,length_batch)
 						total_losses+=t_loss
 						lstm_losses+=l_loss
 						attr_losses+=a_loss
